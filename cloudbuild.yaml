@@ -1,0 +1,80 @@
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  # Docker Build
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '--no-cache', '-t', 
+           'gcr.io/b-508911/ai-dashboard-app:latest', 
+           '.']
+
+  # Docker Push
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 
+           'gcr.io/b-508911/ai-dashboard-app:latest']
+
+  # Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'ai-dashboard-app-run'
+      - '--image'
+      - 'gcr.io/b-508911/ai-dashboard-app:latest'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--verbosity'
+      - 'debug'
+      - '--project'
+      - 'b-508911'
+      - '--port'
+      - '8050'
+    
+  # Edit Cloud Run service to mount volume
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args: ['beta', 'run', 'services', 'update', 'ai-dashboard-app-run',
+           '--execution-environment', 'gen2',
+           '--add-volume', 'name=gcs1,type=cloud-storage,bucket=bucket-capstone-iykra0',
+           '--add-volume-mount', 'volume=gcs1,mount-path=/ai-dashboard-app-run',
+           '--region', 'us-central1']
+
+  # Create or update Cloud Scheduler job for Weekly Update
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args: [
+      'scheduler', 'jobs', 'create', 'http', 'weekly-job',
+      '--schedule', '0 2 * * 0',
+      '--uri', 'https://ai-dashboard-app-run-791022737244.us-central1.run.app/run-weekly-pipeline',
+      '--location', 'us-central1',
+      '--http-method', 'GET'
+    ]
+
+  # Create or update Cloud Scheduler job for Daily Update
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args: [
+      'scheduler', 'jobs', 'create', 'http', 'daily-job',
+      '--schedule', '15 1 * * *',
+      '--uri', 'https://ai-dashboard-app-run-791022737244.us-central1.run.app/run-daily-pipeline',
+      '--location', 'us-central1',
+      '--http-method', 'GET'
+    ]
+
+  # Create or update Cloud Scheduler job for Hourly Update
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args: [
+      'scheduler', 'jobs', 'create', 'http', 'hourly-job',
+      '--schedule', '0 * * * *',
+      '--location', 'us-central1',
+      '--uri', 'https://ai-dashboard-app-run-791022737244.us-central1.run.app/run-hourly-pipeline',
+      '--http-method', 'GET'
+    ]
+
+images:
+  - 'gcr.io/b-508911/ai-dashboard-app:latest'
